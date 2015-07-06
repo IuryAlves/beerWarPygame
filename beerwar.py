@@ -1,57 +1,90 @@
 # coding: utf-8
 
-from pygame.locals import *
-from sys import exit, argv
 import pygame
 import pprint
 import os
+import requests
+from pygame.locals import *
+from sys import exit, argv
 from pygame import sprite
 
 
 class BeerWarInterface(object):
 
-    def read_matrix(self):
-        matrix = [['_'] * 10 for i in range(10)]
-        matrix[4][2]  = "#"
-        matrix[6][2]  = "#"
+    def get_matrix(self):
+        response = requests.get("http://localhost:8080/matrix/")
+        return response.json()
+
+    def read_matrix(self, matrix):
+        # matrix = [['_'] * 10] * 10
+        # matrix[4][2]  = "#"
+        # matrix[6][2]  = "#"
         pprint.pprint(matrix)
 
-        positions = []
+        tank_positions = []
+        barriers_positions = []
         for line_index, line in enumerate(matrix):
             for collunm_index, collunm in enumerate(line):
                 if collunm == '#':
-                    positions.append((collunm_index * 50, line_index * 50))
+                    barriers_positions.append(
+                        (collunm_index * 50, line_index * 50))
+                elif collunm != '_' and collunm != "#":
+                    tank_positions.append((collunm_index * 50, line_index * 50))
 
-        return positions
+        return tank_positions, barriers_positions
 
-class Objects(sprite.Sprite):
+class GameObjects(sprite.Sprite):
 
     _base_image_path = 'sprites'
 
     def __init__(self, position_tuple, image_name, *groups):
         sprite.Sprite.__init__(self, *groups)
         self.position_x, self.position_y = position_tuple
-        self.image = pygame.image.load(os.path.sep.join([Objects._base_image_path, image_name]))
+        self.image = pygame.image.load(os.path.sep.join(
+                [GameObjects._base_image_path, image_name]))
         self.rect = self.image.get_rect()
         self.rect.move_ip(self.position_x, self.position_y)
+        self.degrees = 0
         self.convert_image()
+
+    def rotate(self, side):
+        sides = {
+            "LEFT": 90,
+            "RIGHT": 270
+        }
+
+        degrees_to_rotate = sides[side]
+        self.set_canon_position()
+        self.image = pygame.transform.rotate(self.image, degrees_to_rotate)
+        self.convert_image()
+
+    def set_canon_position(self):
+        pass
+
+    def get_canon_position(self):
+        positions = {
+            90: "LEFT",
+            180: "DOWN",
+            270: "RIGHT",
+            0: "UP"
+        }
+
+        return positions[self.degrees]
 
     def move(self, side):
         self.convert_image()
-        if side == 'LEFT':
-            x, y = -10, 0
-        if side == 'RIGHT':
-            x, y = 10, 0
-        if side == 'UP':
-            x, y = 0, -10
-        if side == 'DOWN':
-            x, y = 0, 10
-        self.rect.move_ip(x, y)
+        sides = {
+            "LEFT": (-10, 0),
+            "RIGHT": (10, 0),
+            "UP": (0, -10),
+            "DOWN": (0, 10)
+        }
+        self.rect.move_ip(sides[side])
 
     def convert_image(self):
         self.image.set_alpha(None, RLEACCEL)
         self.image.convert()
-        self.image.set_colorkey((255, 255, 255), RLEACCEL)
+        self.image.set_colorkey((0, 0, 0), RLEACCEL)
 
 class Game(object):
 
@@ -60,6 +93,8 @@ class Game(object):
     NAME = "Beer War"
 
     keys = {
+        K_a: False,
+        K_d: False,
         K_LEFT: False,
         K_RIGHT: False,
         K_UP: False,
@@ -80,6 +115,9 @@ class Game(object):
         self.tanks = []
         self.barriers = []
 
+        # interface with a server
+        self.interface = None
+
     def run(self):
         pygame.display.flip()
         while True:
@@ -90,24 +128,33 @@ class Game(object):
                 if e.key in Game.keys:
                     Game.keys[e.key] = valor
 
-            if Game.keys[K_LEFT]:
-                tank.move("LEFT")
-            elif Game.keys[K_RIGHT]:
-                tank.move("RIGHT")
-            elif Game.keys[K_DOWN]:
-                tank.move("DOWN")
-            elif Game.keys[K_UP]:
-                tank.move("UP")
+            if self.interface is None:
+                if Game.keys[K_LEFT]:
+                    self.tanks[0].move("LEFT")
+                elif Game.keys[K_RIGHT]:
+                    self.tanks[0].move("RIGHT")
+                elif Game.keys[K_DOWN]:
+                    self.tanks[0].move("DOWN")
+                elif Game.keys[K_UP]:
+                    self.tanks[0].move("UP")
+                elif Game.keys[K_a]:
+                    self.tanks[0].rotate("LEFT")
+                elif Game.keys[K_d]:
+                    self.tanks[0].rotate("RIGHT")
+            else:
+                matrix = self.interface.get_matrix()
+                tanks, barriers = self.interface.read_matrix(matrix)
+                for tank in tanks:
+                    game.tanks.append(GameObjects(tank, "tanque.png", game.group))
+                for barrier in barriers:
+                    game.barriers.append(GameObjects(tank, "barrier.png", game.group))
+
 
             self.group.clear(self.screen, self.background)
             pygame.display.update(self.group.draw(self.screen))
 
 if __name__ == '__main__':
     game = Game()
-
-    beerwar_interface = BeerWarInterface()
-    positions = beerwar_interface.read_matrix()
-    for position in positions:
-        game.tanks.append(Objects(position, "tanque.png", game.group))
-
+    game.tanks.append(GameObjects((0, 0), "tanque.png", game.group))
+    #game.interface = BeerWarInterface()
     game.run()
